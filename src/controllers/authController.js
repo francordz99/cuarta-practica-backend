@@ -48,6 +48,8 @@ const authController = {
             if (user && (await isValidPassword(user, password))) {
                 const token = jwt.sign({ username: user.email, userId: user._id }, config.jwt.jwtSecret, { expiresIn: '1h' });
                 res.cookie('token', token, { httpOnly: false });
+                user.last_connection = Date.now();
+                await user.save();
                 logger.info(`Usuario inició sesión: ${user.email}`);
                 res.redirect(`/?token=${token}`);
             } else {

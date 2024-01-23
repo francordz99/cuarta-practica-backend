@@ -1,10 +1,15 @@
 import User from "../dao/models/userModel.js";
 import Product from "../dao/models/productModel.js";
 import jwt from 'jsonwebtoken';
+import fs from 'fs/promises';
+import path from 'path';
+import { __dirname } from '../utils.js';
+import upload from '../config/multerConfig.js';
 import { config } from "../config/dotenvConfig.js";
 import { userInfoDto } from "../dto/userInfo.js";
 import { usersErrors } from '../services/errors/usersErrors.js';
 import { logger } from "../helpers/loggerConfig.js";
+
 
 const usersController = {
     getInformation: async (req, res) => {
@@ -56,6 +61,9 @@ const usersController = {
             usersErrors.editInformationError();
         }
     },
+    getFilesView: async (req, res) => {
+        res.render('sendfiles');
+    },
 
     getPremiumPanel: async (req, res) => {
         try {
@@ -70,7 +78,58 @@ const usersController = {
             res.status(500).send('Error interno del servidor');
         }
     },
+    sendFiles: async (req, res) => {
+        try {
+            const token = req.cookies.token;
+            const decodedToken = jwt.verify(token, config.jwt.jwtSecret);
+            const userEmail = decodedToken.username;
 
+            const user = await User.findOne({ email: userEmail });
+
+            if (!user) {
+                return res.status(404).render('sendfiles', { errorMessage: 'Usuario no encontrado.' });
+            }
+
+            if (!req.files) {
+                return res.status(400).render('sendfiles', { errorMessage: 'No se han subido archivos.' });
+            }
+
+            const documentsArray = [];
+
+            for (const fieldname of ['id', 'domicilio', 'estadoCuenta']) {
+                if (req.files[fieldname]) {
+                    const doc = req.files[fieldname][0];
+                    const documentType = fieldname;
+
+                    const reference = `${documentType}-${new Date().toISOString().slice(0, 10)}-${userEmail}.jpg`;
+
+                    const folderPath = path.join(__dirname, '..', 'src', 'storage', 'documents', documentType);
+                    await fs.mkdir(folderPath, { recursive: true });
+
+                    const newPath = path.join(folderPath, reference);
+                    await fs.rename(doc.path, newPath);
+
+                    documentsArray.push({
+                        name: documentType,
+                        reference: reference,
+                    });
+                }
+            }
+
+            user.documents = documentsArray;
+
+            if (documentsArray.length === 3 && user.role !== 'premium') {
+                user.role = 'premium';
+            }
+
+            await user.save();
+
+            res.status(200).render('sendfiles', { successMessage: 'Documentos subidos con éxito.' });
+        } catch (error) {
+            console.error(`Error al subir documentos: ${error.message}`);
+            res.status(500).render('sendfiles', { errorMessage: 'Error interno del servidor.' });
+        }
+    },
     postPremiumProduct: async (req, res) => {
         try {
             const token = req.cookies.token;
